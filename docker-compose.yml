@@ -1,0 +1,265 @@
+version: '3.8'
+
+services:
+  # ==================== DATABASES ====================
+  postgres:
+    image: postgres:15-alpine
+    container_name: smartcart-postgres
+    environment:
+      POSTGRES_DB: smartcart_db
+      POSTGRES_USER: smartcart_user
+      POSTGRES_PASSWORD: smartcart_password_2026
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartcart_user -d smartcart_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcart-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartcart-redis
+    command: redis-server --requirepass redis_password_2026 --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartcart-network
+
+  # ==================== API GATEWAY ====================
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: smartcart-api-gateway
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      JWT_SECRET: your-jwt-secret-key-change-in-production
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+      NLP_SERVICE_URL: http://nlp-service:8001
+      PRODUCT_SERVICE_URL: http://product-service:8002
+      ORDER_SERVICE_URL: http://order-service:8003
+      CUSTOMER_SERVICE_URL: http://customer-service:8004
+      PAYMENT_SERVICE_URL: http://payment-service:8005
+      NOTIFICATION_SERVICE_URL: http://notification-service:8006
+      ANALYTICS_SERVICE_URL: http://analytics-service:8007
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== NLP SERVICE ====================
+  nlp-service:
+    build:
+      context: ./services/nlp-service
+      dockerfile: Dockerfile
+    container_name: smartcart-nlp-service
+    environment:
+      PYTHON_ENV: development
+      PORT: 8001
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== PRODUCT SERVICE ====================
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: smartcart-product-service
+    environment:
+      NODE_ENV: development
+      PORT: 8002
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+    ports:
+      - "8002:8002"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== ORDER SERVICE ====================
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: smartcart-order-service
+    environment:
+      NODE_ENV: development
+      PORT: 8003
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+    ports:
+      - "8003:8003"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== CUSTOMER SERVICE ====================
+  customer-service:
+    build:
+      context: ./services/customer-service
+      dockerfile: Dockerfile
+    container_name: smartcart-customer-service
+    environment:
+      NODE_ENV: development
+      PORT: 8004
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+    ports:
+      - "8004:8004"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== PAYMENT SERVICE ====================
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    container_name: smartcart-payment-service
+    environment:
+      NODE_ENV: development
+      PORT: 8005
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    ports:
+      - "8005:8005"
+    depends_on:
+      - postgres
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== NOTIFICATION SERVICE ====================
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: smartcart-notification-service
+    environment:
+      NODE_ENV: development
+      PORT: 8006
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY}
+    ports:
+      - "8006:8006"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== ANALYTICS SERVICE ====================
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: smartcart-analytics-service
+    environment:
+      PYTHON_ENV: development
+      PORT: 8007
+      DATABASE_URL: postgresql://smartcart_user:smartcart_password_2026@postgres:5432/smartcart_db
+      REDIS_URL: redis://:redis_password_2026@redis:6379
+    ports:
+      - "8007:8007"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== ADMIN PANEL (Frontend) ====================
+  admin-panel:
+    build:
+      context: ./frontend/admin-panel
+      dockerfile: Dockerfile
+    container_name: smartcart-admin-panel
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - smartcart-network
+    restart: unless-stopped
+
+  # ==================== MONITORING (Optional) ====================
+  # Uncomment for local monitoring setup
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: smartcart-prometheus
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - prometheus_data:/prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   networks:
+  #     - smartcart-network
+
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: smartcart-grafana
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: admin
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   ports:
+  #     - "3001:3000"
+  #   networks:
+  #     - smartcart-network
+
+networks:
+  smartcart-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  # prometheus_data:
+  # grafana_data:

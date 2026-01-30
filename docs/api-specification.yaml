@@ -1,0 +1,1370 @@
+openapi: 3.0.3
+info:
+  title: SmartCart AI - API Specification
+  description: |
+    Complete API documentation for SmartCart AI platform - an AI-powered supermarket ordering system.
+    
+    ## Architecture
+    - Microservices-based architecture
+    - RESTful APIs with JSON payloads
+    - JWT-based authentication
+    - Rate limiting enabled
+    
+    ## Base URLs
+    - Production: `https://api.smartcart.ai`
+    - Staging: `https://api-staging.smartcart.ai`
+    - Development: `http://localhost:8080`
+    
+  version: 1.0.0
+  contact:
+    name: SmartCart AI Team
+    email: api@smartcart.ai
+  license:
+    name: Proprietary
+    
+servers:
+  - url: https://api.smartcart.ai/v1
+    description: Production server
+  - url: https://api-staging.smartcart.ai/v1
+    description: Staging server
+  - url: http://localhost:8080/v1
+    description: Development server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Products
+    description: Product catalog and inventory management
+  - name: Orders
+    description: Order creation and management
+  - name: Customers
+    description: Customer profile and address management
+  - name: Payments
+    description: Payment processing and refunds
+  - name: Notifications
+    description: SMS, WhatsApp, and Telegram notifications
+  - name: Analytics
+    description: Sales and customer analytics
+  - name: NLP
+    description: Natural language processing for chat
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== AUTHENTICATION ====================
+  /auth/send-otp:
+    post:
+      tags:
+        - Authentication
+      summary: Send OTP to phone number
+      description: Initiates authentication by sending a 6-digit OTP via SMS
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone_number
+              properties:
+                phone_number:
+                  type: string
+                  pattern: '^\+91[6-9]\d{9}$'
+                  example: "+919876543210"
+                  description: Indian phone number with country code
+      responses:
+        '200':
+          description: OTP sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "OTP sent to +919876543210"
+                  expires_in:
+                    type: integer
+                    example: 300
+                    description: OTP expiry time in seconds
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/verify-otp:
+    post:
+      tags:
+        - Authentication
+      summary: Verify OTP and get JWT token
+      description: Validates OTP and returns JWT access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone_number
+                - otp
+              properties:
+                phone_number:
+                  type: string
+                  example: "+919876543210"
+                otp:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: "123456"
+      responses:
+        '200':
+          description: OTP verified successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  token:
+                    type: string
+                    example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  user:
+                    $ref: '#/components/schemas/User'
+                  expires_in:
+                    type: integer
+                    example: 604800
+                    description: Token expiry in seconds (7 days)
+        '401':
+          description: Invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh JWT token
+      description: Get a new access token using existing valid token
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  expires_in:
+                    type: integer
+
+  # ==================== PRODUCTS ====================
+  /products:
+    get:
+      tags:
+        - Products
+      summary: List all products
+      description: Get paginated list of products with optional filters
+      parameters:
+        - name: store_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category_id
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          description: Search query for product name/description
+          schema:
+            type: string
+        - name: in_stock
+          in: query
+          description: Filter by stock availability
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: Products retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    
+    post:
+      tags:
+        - Products
+      summary: Create new product
+      description: Add a new product to the catalog (Admin/Owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /products/{product_id}:
+    get:
+      tags:
+        - Products
+      summary: Get product details
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    
+    put:
+      tags:
+        - Products
+      summary: Update product
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Product'
+    
+    delete:
+      tags:
+        - Products
+      summary: Delete product (soft delete)
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /products/search:
+    get:
+      tags:
+        - Products
+      summary: Search products
+      description: Full-text search across product names and descriptions
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query
+          schema:
+            type: string
+        - name: store_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  total:
+                    type: integer
+
+  /products/{product_id}/stock:
+    post:
+      tags:
+        - Products
+      summary: Update product stock
+      description: Add or remove stock quantity
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+                - transaction_type
+              properties:
+                quantity:
+                  type: number
+                  example: 50
+                transaction_type:
+                  type: string
+                  enum: [purchase, sale, adjustment, damage, return]
+                  example: "purchase"
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Stock updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      product_id:
+                        type: integer
+                      new_stock:
+                        type: number
+                      transaction_id:
+                        type: integer
+
+  # ==================== ORDERS ====================
+  /orders:
+    get:
+      tags:
+        - Orders
+      summary: List orders
+      description: Get orders for customer or all orders for store owner
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed, packing, out_for_delivery, delivered, cancelled]
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: store_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Orders list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    
+    post:
+      tags:
+        - Orders
+      summary: Create new order
+      description: Place a new order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderInput'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Order'
+        '400':
+          description: Invalid order (stock unavailable, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /orders/{order_id}:
+    get:
+      tags:
+        - Orders
+      summary: Get order details
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Order'
+
+  /orders/{order_id}/status:
+    put:
+      tags:
+        - Orders
+      summary: Update order status
+      description: Update order status (Owner/Admin only)
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, packing, out_for_delivery, delivered, cancelled]
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Order'
+
+  /orders/{order_id}/cancel:
+    post:
+      tags:
+        - Orders
+      summary: Cancel order
+      description: Cancel order before packing
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Order cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Cannot cancel (already packed/delivered)
+
+  /orders/{order_id}/invoice:
+    get:
+      tags:
+        - Orders
+      summary: Get order invoice
+      description: Generate PDF invoice for order
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Invoice PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  # ==================== CUSTOMERS ====================
+  /customers/{customer_id}:
+    get:
+      tags:
+        - Customers
+      summary: Get customer profile
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Customer'
+    
+    put:
+      tags:
+        - Customers
+      summary: Update customer profile
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Customer'
+
+  /customers/{customer_id}/addresses:
+    get:
+      tags:
+        - Customers
+      summary: Get customer addresses
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Address list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Address'
+    
+    post:
+      tags:
+        - Customers
+      summary: Add new address
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: Address added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+
+  /customers/{customer_id}/loyalty:
+    get:
+      tags:
+        - Customers
+      summary: Get loyalty points
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Loyalty information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      points:
+                        type: integer
+                        example: 450
+                      tier:
+                        type: string
+                        enum: [bronze, silver, gold]
+                        example: "silver"
+                      lifetime_spent:
+                        type: number
+                        example: 15000.50
+
+  # ==================== PAYMENTS ====================
+  /payments/create:
+    post:
+      tags:
+        - Payments
+      summary: Create payment order
+      description: Initialize payment with gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - order_id
+                - amount
+                - currency
+              properties:
+                order_id:
+                  type: string
+                  format: uuid
+                amount:
+                  type: number
+                  example: 1040.00
+                currency:
+                  type: string
+                  example: "INR"
+                payment_method:
+                  type: string
+                  enum: [upi, card, netbanking, wallet, cod]
+      responses:
+        '200':
+          description: Payment order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      payment_id:
+                        type: string
+                      gateway_order_id:
+                        type: string
+                      amount:
+                        type: number
+                      currency:
+                        type: string
+                      payment_url:
+                        type: string
+                        description: Redirect URL for payment
+
+  /payments/verify:
+    post:
+      tags:
+        - Payments
+      summary: Verify payment
+      description: Verify payment signature from gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - payment_id
+                - gateway_payment_id
+                - signature
+              properties:
+                payment_id:
+                  type: string
+                gateway_payment_id:
+                  type: string
+                signature:
+                  type: string
+      responses:
+        '200':
+          description: Payment verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  verified:
+                    type: boolean
+                  order_id:
+                    type: string
+
+  /payments/webhook:
+    post:
+      tags:
+        - Payments
+      summary: Payment gateway webhook
+      description: Receive payment status updates from gateway
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed
+
+  # ==================== NLP ====================
+  /nlp/parse:
+    post:
+      tags:
+        - NLP
+      summary: Parse natural language message
+      description: Extract intent and entities from user message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+                - user_id
+              properties:
+                message:
+                  type: string
+                  example: "I need 2 kg tomatoes and 1 liter milk"
+                user_id:
+                  type: string
+                  format: uuid
+                context:
+                  type: object
+                  description: Conversation context
+      responses:
+        '200':
+          description: Message parsed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      intent:
+                        type: string
+                        enum: [add_to_cart, view_cart, checkout, track_order, search_product, help]
+                        example: "add_to_cart"
+                      entities:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            product:
+                              type: string
+                            quantity:
+                              type: number
+                            unit:
+                              type: string
+                      confidence:
+                        type: number
+                        example: 0.95
+                      suggested_response:
+                        type: string
+
+  # ==================== ANALYTICS ====================
+  /analytics/sales/daily:
+    get:
+      tags:
+        - Analytics
+      summary: Get daily sales report
+      parameters:
+        - name: store_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Sales report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      total_revenue:
+                        type: number
+                      total_orders:
+                        type: integer
+                      avg_order_value:
+                        type: number
+                      top_products:
+                        type: array
+                        items:
+                          type: object
+
+  /analytics/products/top:
+    get:
+      tags:
+        - Analytics
+      summary: Get top-selling products
+      parameters:
+        - name: store_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [today, week, month, year]
+            default: week
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Top products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        product_id:
+                          type: integer
+                        product_name:
+                          type: string
+                        total_quantity:
+                          type: number
+                        total_revenue:
+                          type: number
+                        order_count:
+                          type: integer
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/verify-otp
+
+  schemas:
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        phone_number:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [customer, owner, staff, admin, delivery]
+        created_at:
+          type: string
+          format: date-time
+
+    Product:
+      type: object
+      properties:
+        product_id:
+          type: integer
+        store_id:
+          type: string
+          format: uuid
+        category_id:
+          type: integer
+        product_name:
+          type: string
+        description:
+          type: string
+        brand:
+          type: string
+        mrp:
+          type: number
+        selling_price:
+          type: number
+        discount_percent:
+          type: number
+        stock_quantity:
+          type: number
+        unit_type:
+          type: string
+          enum: [kg, gram, liter, ml, piece, dozen, packet]
+        min_stock_level:
+          type: number
+        image_url:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ProductInput:
+      type: object
+      required:
+        - store_id
+        - product_name
+        - selling_price
+        - unit_type
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        category_id:
+          type: integer
+        product_name:
+          type: string
+        description:
+          type: string
+        brand:
+          type: string
+        mrp:
+          type: number
+        selling_price:
+          type: number
+        stock_quantity:
+          type: number
+        unit_type:
+          type: string
+        min_stock_level:
+          type: number
+        image_url:
+          type: string
+
+    Order:
+      type: object
+      properties:
+        order_id:
+          type: string
+          format: uuid
+        order_number:
+          type: string
+          example: "FM2401301234"
+        customer_id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, confirmed, packing, out_for_delivery, delivered, cancelled]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: integer
+              product_name:
+                type: string
+              quantity:
+                type: number
+              unit_price:
+                type: number
+              total_price:
+                type: number
+        subtotal:
+          type: number
+        delivery_charges:
+          type: number
+        discount:
+          type: number
+        total_amount:
+          type: number
+        delivery_address:
+          $ref: '#/components/schemas/Address'
+        payment_method:
+          type: string
+        payment_status:
+          type: string
+          enum: [pending, completed, failed, refunded]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OrderInput:
+      type: object
+      required:
+        - store_id
+        - items
+        - delivery_address_id
+        - payment_method
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - product_id
+              - quantity
+            properties:
+              product_id:
+                type: integer
+              quantity:
+                type: number
+        delivery_address_id:
+          type: integer
+        delivery_slot:
+          type: string
+          example: "2026-01-30T18:00:00Z"
+        payment_method:
+          type: string
+          enum: [upi, card, netbanking, wallet, cod]
+        special_instructions:
+          type: string
+
+    Customer:
+      type: object
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        phone_number:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        total_orders:
+          type: integer
+        total_spent:
+          type: number
+        loyalty_points:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    Address:
+      type: object
+      properties:
+        address_id:
+          type: integer
+        customer_id:
+          type: string
+          format: uuid
+        address_type:
+          type: string
+          enum: [home, work, other]
+        address_line1:
+          type: string
+        address_line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        pincode:
+          type: string
+        landmark:
+          type: string
+        is_default:
+          type: boolean
+
+    AddressInput:
+      type: object
+      required:
+        - address_line1
+        - city
+        - state
+        - pincode
+      properties:
+        address_type:
+          type: string
+          enum: [home, work, other]
+        address_line1:
+          type: string
+        address_line2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        pincode:
+          type: string
+        landmark:
+          type: string
+        is_default:
+          type: boolean
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    RateLimitError:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
