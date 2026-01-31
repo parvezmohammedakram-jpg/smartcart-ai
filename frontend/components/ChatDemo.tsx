@@ -161,7 +161,7 @@ export default function ChatDemo() {
                     </button>
                 </div>
                 <div className="mt-2 text-xs text-gray-500 text-center">
-                    💡 Try: "I need milk and bread" or "Track my order"
+                    💡 Try: &quot;I need milk and bread&quot; or &quot;Track my order&quot;
                 </div>
             </div>
         </motion.div>
