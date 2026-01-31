@@ -155,7 +155,7 @@ export default function ChatDemo() {
                     <button
                         onClick={handleSend}
                         disabled={!input.trim()}
-                        className="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        className="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         Send
                     </button>
